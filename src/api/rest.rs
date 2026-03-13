@@ -136,7 +136,9 @@ impl BybitRestClient {
             coin: balance_item.coin.clone(),
             wallet_balance: balance_item.wallet_balance_f64(),
             available_balance: balance_item.available_balance_f64(),
-            unrealized_pnl: balance_item.unrealisedPnl.parse().unwrap_or(0.0),
+            unrealized_pnl: balance_item.unrealised_pnl.as_ref()
+                .and_then(|s| if s.is_empty() { None } else { s.parse().ok() })
+                .unwrap_or(0.0),
         })
     }
 

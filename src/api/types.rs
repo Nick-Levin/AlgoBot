@@ -47,11 +47,14 @@ pub struct CoinBalance {
     pub coin: String,
     #[serde(rename = "walletBalance")]
     pub wallet_balance: String,
-    #[serde(rename = "availableToWithdraw")]
-    pub available_to_withdraw: String,
-    #[serde(rename = "availableBalance")]
-    pub available_balance: String,
-    pub unrealisedPnl: String,
+    #[serde(default, rename = "availableToWithdraw")]
+    pub available_to_withdraw: Option<String>,
+    #[serde(default, rename = "availableBalance")]
+    pub available_balance: Option<String>,
+    #[serde(default)]
+    pub equity: Option<String>,
+    #[serde(default, rename = "unrealisedPnl")]
+    pub unrealised_pnl: Option<String>,
 }
 
 impl CoinBalance {
@@ -60,7 +63,15 @@ impl CoinBalance {
     }
 
     pub fn available_balance_f64(&self) -> f64 {
-        self.available_balance.parse().unwrap_or(0.0)
+        self.available_balance.as_ref()
+            .and_then(|s| if s.is_empty() { None } else { s.parse().ok() })
+            .unwrap_or_else(|| self.wallet_balance_f64())
+    }
+
+    pub fn equity_f64(&self) -> f64 {
+        self.equity.as_ref()
+            .and_then(|s| if s.is_empty() { None } else { s.parse().ok() })
+            .unwrap_or_else(|| self.wallet_balance_f64())
     }
 }
 
