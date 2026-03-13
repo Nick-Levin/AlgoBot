@@ -3,7 +3,6 @@ use crate::api::websocket::{MarketDataCache, MarketDataManager};
 use crate::config::ApiConfig;
 use crate::db::{AccountBalance, OrderRequest, OrderResponse, Position, Ticker};
 use crate::error::BotResult;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
@@ -16,8 +15,11 @@ pub struct ApiManager {
     /// Demo API client - for trading actions and account state
     demo: BybitRestClient,
     
-    /// WebSocket + REST market data manager
-    market_data: Option<Arc<MarketDataManager>>,
+    /// Market data cache for accessing ticker data
+    market_cache: Option<MarketDataCache>,
+    
+    /// Shutdown sender for market data manager
+    _market_data_shutdown: Option<mpsc::Sender<()>>,
     
     /// Symbol being traded
     symbol: String,
@@ -35,7 +37,8 @@ impl ApiManager {
         Ok(Self {
             production,
             demo,
-            market_data: None,
+            market_cache: None,
+            _market_data_shutdown: None,
             symbol,
         })
     }
@@ -48,7 +51,10 @@ impl ApiManager {
             self.production.clone(),
         );
         
-        let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+        // Get cache before spawning
+        let cache = manager.get_cache();
+        
+        let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
         
         // Spawn the market data manager
         tokio::spawn(async move {
@@ -58,11 +64,8 @@ impl ApiManager {
         // Give it time to connect
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-        self.market_data = Some(Arc::new(MarketDataManager::new(
-            ws_url,
-            self.symbol.clone(),
-            self.production.clone(),
-        )));
+        self.market_cache = Some(cache);
+        self._market_data_shutdown = Some(shutdown_tx);
 
         info!("Market data streaming started for {}", self.symbol);
         Ok(())
@@ -70,7 +73,7 @@ impl ApiManager {
 
     /// Get the market data cache
     pub fn get_market_cache(&self) -> Option<MarketDataCache> {
-        self.market_data.as_ref().map(|m| m.get_cache())
+        self.market_cache.clone()
     }
 
     // ============== PRODUCTION API METHODS (Read-Only) ==============

@@ -100,14 +100,11 @@ impl BybitWebSocketClient {
         let (mut write, mut read) = ws_stream.split();
 
         // Subscribe to ticker topic
+        // Bybit v5 format: "tickers.{symbol}"
+        let topic = format!("tickers.{}", symbol);
         let subscribe_msg = serde_json::json!({
             "op": "subscribe",
-            "args": [
-                {
-                    "channel": "tickers",
-                    "symbol": symbol
-                }
-            ]
+            "args": [topic]
         });
 
         write
