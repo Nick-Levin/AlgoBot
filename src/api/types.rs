@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 /// Generic API response wrapper from Bybit
 #[derive(Debug, Clone, Deserialize)]
 pub struct BybitResponse<T> {
+    #[serde(rename = "retCode")]
     pub ret_code: i32,
+    #[serde(rename = "retMsg")]
     pub ret_msg: String,
     pub result: T,
     pub time: u64,
