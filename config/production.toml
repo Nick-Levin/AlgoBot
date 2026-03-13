@@ -38,8 +38,8 @@ max_hold_time_hours = 168
 leverage = 5
 
 [strategy.dynagrid.entry]
-mode = "ema_trend"
-ema_candles = 20
+mode = "immediate"
+ema_candles = 10
 ema_timeframe = "15"
 ema_fallback = true
 
