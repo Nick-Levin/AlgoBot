@@ -45,14 +45,10 @@ impl BybitRestClient {
         hex::encode(result.into_bytes())
     }
 
-    /// Build a signed request
+    /// Build a signed request (for private endpoints)
     fn build_request(&self, method: Method, path: &str, params: Option<&str>) -> RequestBuilder {
         let timestamp = Utc::now().timestamp_millis() as u64;
-        let payload = if method == Method::GET {
-            params.unwrap_or("")
-        } else {
-            params.unwrap_or("")
-        };
+        let payload = params.unwrap_or("");
 
         let signature = self.sign_request(timestamp, payload);
 
@@ -68,6 +64,14 @@ impl BybitRestClient {
             .header("Content-Type", "application/json");
 
         request
+    }
+
+    /// Build a public request (for market data endpoints - no auth required)
+    fn build_public_request(&self, method: Method, path: &str) -> RequestBuilder {
+        let url = format!("{}{}", self.credentials.base_url, path);
+        self.client
+            .request(method, &url)
+            .header("Content-Type", "application/json")
     }
 
     // ============== Wallet & Account ==============
@@ -206,14 +210,14 @@ impl BybitRestClient {
 
     // ============== Market Data ==============
 
-    /// Get ticker (from Production)
+    /// Get ticker (from Production) - Public endpoint, no auth needed
     pub async fn get_ticker(&self, symbol: &str) -> BotResult<Ticker> {
         let path = "/v5/market/tickers";
         let params = format!("category=linear&symbol={}", symbol);
         let url = format!("{}?{}", path, params);
 
         let response = self
-            .build_request(Method::GET, &url, Some(&params))
+            .build_public_request(Method::GET, &url)
             .send()
             .await
             .map_err(|e| {
@@ -263,13 +267,14 @@ impl BybitRestClient {
     }
 
     /// Get orderbook (from Production)
+    /// Get orderbook (from Production) - Public endpoint, no auth needed
     pub async fn get_orderbook(&self, symbol: &str, limit: u8) -> BotResult<Orderbook> {
         let path = "/v5/market/orderbook";
         let params = format!("category=linear&symbol={}&limit={}", symbol, limit);
         let url = format!("{}?{}", path, params);
 
         let response = self
-            .build_request(Method::GET, &url, Some(&params))
+            .build_public_request(Method::GET, &url)
             .send()
             .await
             .map_err(BotError::NetworkError)?;
@@ -318,14 +323,14 @@ impl BybitRestClient {
         })
     }
 
-    /// Get funding rate (from Production)
+    /// Get funding rate (from Production) - Public endpoint, no auth needed
     pub async fn get_funding_rate(&self, symbol: &str) -> BotResult<f64> {
         let path = "/v5/market/funding/history";
         let params = format!("category=linear&symbol={}&limit=1", symbol);
         let url = format!("{}?{}", path, params);
 
         let response = self
-            .build_request(Method::GET, &url, Some(&params))
+            .build_public_request(Method::GET, &url)
             .send()
             .await
             .map_err(BotError::NetworkError)?;
@@ -361,7 +366,7 @@ impl BybitRestClient {
             })
     }
 
-    /// Get klines/candles (from Production)
+    /// Get klines/candles (from Production) - Public endpoint, no auth needed
     pub async fn get_klines(&self, symbol: &str, interval: &str, limit: u32) -> BotResult<Vec<Kline>> {
         let path = "/v5/market/kline";
         let params = format!(
@@ -371,7 +376,7 @@ impl BybitRestClient {
         let url = format!("{}?{}", path, params);
 
         let response = self
-            .build_request(Method::GET, &url, Some(&params))
+            .build_public_request(Method::GET, &url)
             .send()
             .await
             .map_err(BotError::NetworkError)?;
@@ -386,8 +391,14 @@ impl BybitRestClient {
             )));
         }
 
+        debug!("Klines response body: {}", body);
+        
         let result: BybitResponse<KlineResponse> =
-            serde_json::from_str(&body).map_err(BotError::SerializationError)?;
+            serde_json::from_str(&body).map_err(|e| {
+                error!("Failed to parse klines response: {}", e);
+                error!("Response body: {}", body);
+                BotError::SerializationError(e)
+            })?;
 
         if !result.is_success() {
             return Err(BotError::ApiError {
