@@ -37,17 +37,19 @@ impl AlgoTrader {
         info!("Starting AlgoTrader for symbol: {}", symbol);
         
         // Create API manager
-        let api = Arc::new(api::ApiManager::new(
+        let mut api = api::ApiManager::new(
             &self.config.api,
             &symbol,
-        )?);
+        )?;
         
         // Start market data streaming
         let ws_url = self.config.api.production.ws_url.clone()
             .unwrap_or_else(|| "wss://stream.bybit.com/v5/public/linear".to_string());
         
-        let mut api_clone = Arc::clone(&api);
-        Arc::make_mut(&mut api_clone).start_market_data(&ws_url).await?;
+        api.start_market_data(&ws_url).await?;
+        
+        // Wrap in Arc after market data is started
+        let api = Arc::new(api);
         
         // Create and run strategy with risk manager
         let engine = strategy::DynaGridEngine::new(

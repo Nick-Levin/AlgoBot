@@ -37,7 +37,7 @@ impl DynaGridEngine {
         })?;
 
         // Try to load existing state or create new
-        let (state, grid_config) = match db.load_strategy_state().await? {
+        let (state, grid_config, initial_position_size) = match db.load_strategy_state().await? {
             Some(state) if state.is_active => {
                 info!("Resuming active strategy for {}", state.symbol);
                 // Reconstruct grid config from saved state
@@ -51,11 +51,18 @@ impl DynaGridEngine {
                 } else {
                     None
                 };
-                (state, grid)
+                // Calculate initial position size from saved state
+                let position_size = if state.initial_position_value_usdt > 0.0 && state.grid_level > 0 {
+                    // We have existing position - calculate size per level
+                    state.initial_position_value_usdt / state.grid_level as f64
+                } else {
+                    0.0 // Will be calculated on first price update
+                };
+                (state, grid, position_size)
             }
             _ => {
                 // New strategy - will be initialized on first run
-                (StrategyState::new(config.symbol()), None)
+                (StrategyState::new(config.symbol()), None, 0.0)
             }
         };
 
@@ -68,7 +75,7 @@ impl DynaGridEngine {
             risk_manager,
             config,
             state,
-            initial_position_size: 0.0,
+            initial_position_size,
             grid_config,
             partial_exit_config,
         })
@@ -151,9 +158,15 @@ impl DynaGridEngine {
         // Get current market price
         let ticker = self.api.get_ticker().await?;
         let current_price = ticker.last_price;
+        
+        debug!(
+            "Strategy iteration: price={:.2}, is_active={}, has_positions={}, grid_level={}",
+            current_price, self.state.is_active, self.state.has_positions(), self.state.grid_level
+        );
 
         // Check if we need to initialize
         if !self.state.is_active {
+            info!("Initializing strategy at price {:.2}", current_price);
             self.initialize_strategy(current_price).await?;
             return Ok(false);
         }
@@ -302,7 +315,10 @@ impl DynaGridEngine {
                     info!("Price in lower zone, entering SHORT");
                     Side::Sell
                 } else {
-                    info!("Price in neutral zone, waiting for entry...");
+                    info!("Price {:.2} in neutral zone ({:.2} - {:.2}), waiting for entry...", 
+                          current_price, grid.lower_price, grid.upper_price);
+                    // Don't mark as active yet - wait for next iteration
+                    self.state.is_active = false;
                     return Ok(());
                 }
             }
@@ -445,8 +461,14 @@ impl DynaGridEngine {
 
         // Determine current zone
         let current_zone = match grid.get_zone(current_price) {
-            Some(zone) => zone,
-            None => return Ok(None), // In neutral zone
+            Some(zone) => {
+                debug!("Price {:.2} is in {:?} zone", current_price, zone);
+                zone
+            }
+            None => {
+                debug!("Price {:.2} is in neutral zone (no entry)", current_price);
+                return Ok(None);
+            }
         };
 
         // Check if we already have the correct dominant position
@@ -455,18 +477,27 @@ impl DynaGridEngine {
             self.state.short_size * current_price,
         );
 
+        debug!(
+            "Position values - Long: {:.2} USDT, Short: {:.2} USDT, Target factor: {:.2}x",
+            long_value, short_value, self.config.position_sizing_factor
+        );
+
         let target_zone = match current_zone {
             Zone::Upper => {
                 // Want Long to be 1.5x Short
                 if long_value >= short_value * self.config.position_sizing_factor {
-                    return Ok(None); // Already correct
+                    debug!("Already balanced in upper zone (long: {:.2} >= {:.2}), skipping", 
+                           long_value, short_value * self.config.position_sizing_factor);
+                    return Ok(None);
                 }
                 Zone::Upper
             }
             Zone::Lower => {
                 // Want Short to be 1.5x Long
                 if short_value >= long_value * self.config.position_sizing_factor {
-                    return Ok(None); // Already correct
+                    debug!("Already balanced in lower zone (short: {:.2} >= {:.2}), skipping",
+                           short_value, long_value * self.config.position_sizing_factor);
+                    return Ok(None);
                 }
                 Zone::Lower
             }
