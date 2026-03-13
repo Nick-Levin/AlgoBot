@@ -66,9 +66,9 @@ press_enter() {
 get_input() {
     local prompt="$1" default="$2"
     if [ -n "$default" ]; then
-        echo -ne "$prompt [$default]: "
+        echo -ne "$prompt [$default]: " >&2
     else
-        echo -ne "$prompt: "
+        echo -ne "$prompt: " >&2
     fi
     read -r result
     echo "${result:-$default}"
@@ -78,16 +78,16 @@ get_yes_no() {
     local prompt="$1" default="${2:-Y}"
     while true; do
         if [ "$default" = "Y" ]; then
-            echo -ne "$prompt [Y/n]: "
+            echo -ne "$prompt [Y/n]: " >&2
         else
-            echo -ne "$prompt [y/N]: "
+            echo -ne "$prompt [y/N]: " >&2
         fi
         read -r result
         result="${result:-$default}"
         case "$result" in
             [Yy]*) return 0 ;;
             [Nn]*) return 1 ;;
-            *) echo "Please answer Y or N" ;;
+            *) echo "Please answer Y or N" >&2 ;;
         esac
     done
 }
