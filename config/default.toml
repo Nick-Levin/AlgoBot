@@ -1,0 +1,54 @@
+[bot]
+name = "AlgoTrader-DynaGrid"
+version = "0.1.0"
+log_level = "info"
+data_dir = "./data"
+
+[api.production]
+base_url = "https://api.bybit.com"
+ws_url = "wss://stream.bybit.com/v5/public/linear"
+rate_limit_requests = 50
+rate_limit_window_ms = 1000
+
+[api.demo]
+base_url = "https://api-demo.bybit.com"
+rate_limit_requests = 50
+rate_limit_window_ms = 1000
+
+[database]
+path = "./data/algotrader.db"
+backup_enabled = true
+backup_interval_hours = 24
+backup_retention_days = 30
+
+[risk]
+max_daily_loss_pct = 2.0
+max_total_exposure_pct = 50.0
+emergency_stop_loss_pct = 5.0
+
+[strategy.dynagrid]
+enabled = true
+# Symbol is REQUIRED - no default
+# position_risk_percentage is REQUIRED - no default
+grid_range_pct = 2.0
+position_sizing_factor = 1.5
+max_grid_levels = 4
+min_entry_interval_minutes = 60
+max_hold_time_hours = 168
+leverage = 5
+
+[strategy.dynagrid.entry]
+# Entry mode: "ema_trend", "immediate", or "wait_for_zone"
+mode = "ema_trend"
+# Number of candles for EMA calculation
+ema_candles = 20
+# Timeframe for EMA: "5", "15", "60", or "240" (minutes)
+ema_timeframe = "15"
+# If true, wait for zone touch when no EMA trend detected
+ema_fallback = true
+
+[strategy.dynagrid.exit]
+partial_exit_enabled = true
+partial_exit_levels = 3
+partial_exit_percentages = [30, 30, 40]
+partial_exit_multipliers = [1.0, 2.0, 3.5]
