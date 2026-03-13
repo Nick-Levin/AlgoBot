@@ -476,9 +476,14 @@ impl BybitRestClient {
             });
         }
 
+        let order_id = result.result.order_id.ok_or_else(|| BotError::ApiError {
+            message: "Order placed but no order ID returned".to_string(),
+            retryable: false,
+        })?;
+        
         Ok(OrderResponse {
-            order_id: result.result.order_id,
-            order_link_id: Some(result.result.order_link_id),
+            order_id,
+            order_link_id: result.result.order_link_id,
         })
     }
 

@@ -192,10 +192,10 @@ pub struct PlaceOrderRequest {
 /// Order placement response
 #[derive(Debug, Clone, Deserialize)]
 pub struct PlaceOrderResult {
-    #[serde(rename = "orderId")]
-    pub order_id: String,
-    #[serde(rename = "orderLinkId")]
-    pub order_link_id: String,
+    #[serde(default, rename = "orderId")]
+    pub order_id: Option<String>,
+    #[serde(default, rename = "orderLinkId")]
+    pub order_link_id: Option<String>,
 }
 
 /// Order status response
