@@ -351,8 +351,8 @@ impl DynaGridEngine {
             candles, timeframe
         );
 
-        // Fetch klines
-        let klines = self.api.get_klines(timeframe, candles as u32 + 10).await?;
+        // Fetch klines - limit to exact number needed to avoid response truncation
+        let klines = self.api.get_klines(timeframe, candles as u32).await?;
         
         if klines.len() < candles {
             return Err(BotError::ApiError {

@@ -391,12 +391,9 @@ impl BybitRestClient {
             )));
         }
 
-        debug!("Klines response body: {}", body);
-        
         let result: BybitResponse<KlineResponse> =
             serde_json::from_str(&body).map_err(|e| {
                 error!("Failed to parse klines response: {}", e);
-                error!("Response body: {}", body);
                 BotError::SerializationError(e)
             })?;
 
