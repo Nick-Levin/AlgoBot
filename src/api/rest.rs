@@ -34,10 +34,13 @@ impl BybitRestClient {
     }
 
     /// Generate authentication headers for Bybit API
+    /// Format: timestamp + api_key + recv_window + payload
     fn sign_request(&self, timestamp: u64, payload: &str) -> String {
         let mut mac = HmacSha256::new_from_slice(self.credentials.secret.as_bytes())
             .expect("HMAC can take key of any size");
-        mac.update(format!("{}{}{}", timestamp, self.credentials.key, payload).as_bytes());
+        let sign_data = format!("{}{}{}{}", timestamp, self.credentials.key, self.recv_window, payload);
+        debug!("Signing data: {}", sign_data);
+        mac.update(sign_data.as_bytes());
         let result = mac.finalize();
         hex::encode(result.into_bytes())
     }
