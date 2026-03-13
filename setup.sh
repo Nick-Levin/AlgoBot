@@ -1,307 +1,415 @@
 #!/bin/bash
 
-# AlgoTrader Interactive Setup Script
-# This script guides you through configuring the trading bot
+# AlgoTrader Interactive Setup - CLI Menu Edition
+# A user-friendly configuration tool with jump-to-section capability
 
 set -e
 
-echo "╔════════════════════════════════════════════════════════════════════╗"
-echo "║              AlgoTrader - Interactive Setup                        ║"
-echo "║         Dynamic Hedge Grid Strategy for Bybit                      ║"
-echo "╚════════════════════════════════════════════════════════════════════╝"
-echo ""
-
-# Colors for output
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Default values
-DEFAULT_SYMBOL="ETHUSDT"
-DEFAULT_RISK_PCT="0.02"
-DEFAULT_GRID_RANGE="2.0"
-DEFAULT_LEVERAGE="5"
-DEFAULT_ENTRY_MODE="ema_trend"
-DEFAULT_EMA_CANDLES="20"
-DEFAULT_EMA_TIMEFRAME="15"
-DEFAULT_MAX_GRID_LEVELS="4"
-DEFAULT_MAX_HOLD_HOURS="168"
+DEFAULTS=(
+    ["symbol"]="ETHUSDT"
+    ["risk_pct"]="0.02"
+    ["leverage"]="5"
+    ["grid_range"]="2.0"
+    ["max_grid"]="4"
+    ["entry_mode"]="ema_trend"
+    ["ema_candles"]="20"
+    ["ema_timeframe"]="15"
+    ["ema_fallback"]="true"
+    ["max_hold_hours"]="168"
+    ["partial_exits"]="true"
+)
 
-# Function to prompt user
-prompt() {
-    local prompt_text="$1"
-    local default_value="$2"
+# Current configuration
+CONFIG_FILE="config/production.toml"
+IS_CONFIGURED=false
+
+# ============================================
+# UTILITY FUNCTIONS
+# ============================================
+
+clear_screen() {
+    clear
+}
+
+print_header() {
+    clear_screen
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}              ${BOLD}AlgoTrader - Configuration Wizard${NC}                   ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}         Dynamic Hedge Grid Strategy for Bybit                      ${CYAN}║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+print_section() {
+    echo -e "\n${BLUE}▶ $1${NC}\n"
+}
+
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}✗ $1${NC}"
+}
+
+print_info() {
+    echo -e "${CYAN}ℹ $1${NC}"
+}
+
+# Press any key to continue
+press_any_key() {
+    echo ""
+    read -n 1 -s -r -p "Press any key to continue..."
+}
+
+# Input with default value
+input_with_default() {
+    local prompt="$1"
+    local default="$2"
     local result
     
-    if [ -n "$default_value" ]; then
-        read -rp "$prompt_text [$default_value]: " result
-        echo "${result:-$default_value}"
+    echo -ne "${prompt} ${CYAN}[${default}]${NC}: "
+    read -r result
+    echo "${result:-$default}"
+}
+
+# Yes/No prompt
+confirm() {
+    local prompt="$1"
+    local default="${2:-Y}"
+    local result
+    
+    if [[ "$default" == "Y" ]]; then
+        echo -ne "${prompt} ${CYAN}[Y/n]${NC}: "
     else
-        read -rp "$prompt_text: " result
-        echo "$result"
+        echo -ne "${prompt} ${CYAN}[y/N]${NC}: "
     fi
-}
-
-# Function to prompt yes/no
-prompt_yes_no() {
-    local prompt_text="$1"
-    local default_value="$2"
-    local result
     
-    while true; do
-        read -rp "$prompt_text [Y/n]: " result
-        result="${result:-$default_value}"
-        case "$result" in
-            [Yy]* ) echo "true"; return ;;
-            [Nn]* ) echo "false"; return ;;
-            * ) echo "Please answer yes or no." ;;
-        esac
-    done
+    read -r result
+    result="${result:-$default}"
+    
+    [[ "$result" =~ ^[Yy]$ ]] && echo "true" || echo "false"
 }
 
-# Function to select from options
+# Select from menu
 select_option() {
-    local prompt_text="$1"
+    local title="$1"
     shift
     local options=("$@")
     local choice
     
-    echo "$prompt_text"
+    echo -e "\n${BOLD}${title}${NC}"
+    echo "────────────────────────────────────────"
+    
     for i in "${!options[@]}"; do
-        echo "  $((i+1)). ${options[$i]}"
+        printf "  ${CYAN}%2d.${NC} %s\n" $((i+1)) "${options[$i]}"
     done
+    echo "────────────────────────────────────────"
     
     while true; do
-        read -rp "Enter choice [1-${#options[@]}]: " choice
+        echo -ne "\nSelect option ${CYAN}[1-${#options[@]}]${NC}: "
+        read -r choice
+        
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
-            echo "${options[$((choice-1))]}"
+            echo "$choice"
             return
         fi
-        echo "Invalid choice. Please try again."
+        print_error "Invalid choice. Please enter a number between 1 and ${#options[@]}."
     done
 }
 
-echo -e "${BLUE}This script will help you configure AlgoTrader.${NC}"
-echo "You'll need:"
-echo "  - Bybit Production API credentials (for market data)"
-echo "  - Bybit Demo API credentials (for trading)"
-echo ""
-echo -e "${YELLOW}Press Enter to continue...${NC}"
-read
-
-clear
-
 # ============================================
-# API CONFIGURATION
+# CONFIGURATION SECTIONS
 # ============================================
-echo -e "${GREEN}=== Step 1: API Configuration ===${NC}"
-echo ""
-echo -e "${BLUE}Production API (Read-Only - for market data):${NC}"
-echo "Get from: https://www.bybit.com/app/user/api-management"
-echo ""
-PROD_KEY=$(prompt "Enter Production API Key" "")
-PROD_SECRET=$(prompt "Enter Production API Secret" "")
 
-echo ""
-echo -e "${BLUE}Demo API (Trading - for actual trades):${NC}"
-echo "Get from: https://www.bybit.com/demo-trading"
-echo ""
-DEMO_KEY=$(prompt "Enter Demo API Key" "")
-DEMO_SECRET=$(prompt "Enter Demo API Secret" "")
-
-clear
-
-# ============================================
-# TRADING PAIR SELECTION
-# ============================================
-echo -e "${GREEN}=== Step 2: Trading Pair ===${NC}"
-echo ""
-echo "Select the cryptocurrency pair to trade:"
-echo ""
-
-SYMBOL=$(select_option "Available pairs:" \
-    "ETHUSDT (Ethereum - recommended for beginners)" \
-    "BTCUSDT (Bitcoin - higher volatility)" \
-    "SOLUSDT (Solana - mid volatility)" \
-    "Custom (enter manually)")
-
-if [ "$SYMBOL" = "Custom (enter manually)" ]; then
-    SYMBOL=$(prompt "Enter trading pair (e.g., XRPUSDT)" "")
-else
-    # Extract symbol from description
-    SYMBOL=$(echo "$SYMBOL" | cut -d' ' -f1)
-fi
-
-clear
-
-# ============================================
-# RISK CONFIGURATION
-# ============================================
-echo -e "${GREEN}=== Step 3: Risk Configuration ===${NC}"
-echo ""
-echo "These settings control how much capital is risked per trade."
-echo ""
-
-echo -e "${BLUE}Position Risk Percentage:${NC}"
-echo "This is the percentage of your free USDT that will be used"
-echo "for each initial position entry."
-echo ""
-echo "  0.01 = 1% (conservative, smaller positions)"
-echo "  0.02 = 2% (recommended, balanced)"
-echo "  0.05 = 5% (aggressive, larger positions)"
-echo ""
-
-RISK_PCT=$(prompt "Position risk percentage" "$DEFAULT_RISK_PCT")
-
-echo ""
-echo -e "${BLUE}Leverage:${NC}"
-echo "Higher leverage = larger positions but higher risk"
-echo ""
-LEVERAGE=$(prompt "Leverage (1-100)" "$DEFAULT_LEVERAGE")
-
-clear
-
-# ============================================
-# STRATEGY CONFIGURATION
-# ============================================
-echo -e "${GREEN}=== Step 4: Strategy Configuration ===${NC}"
-echo ""
-
-echo -e "${BLUE}Entry Mode:${NC}"
-echo ""
-echo "ema_trend     - Uses EMA slope to decide LONG/SHORT (recommended)"
-echo "immediate     - Always enters LONG immediately"
-echo "wait_for_zone - Waits for price to hit a zone first"
-echo ""
-
-ENTRY_MODE=$(select_option "Select entry mode:" \
-    "ema_trend" \
-    "immediate" \
-    "wait_for_zone")
-
-if [ "$ENTRY_MODE" = "ema_trend" ]; then
+# Section 1: API Keys
+configure_api() {
+    print_header
+    print_section "API Configuration"
+    
+    print_info "You need TWO sets of API keys from Bybit:"
     echo ""
-    echo -e "${BLUE}EMA Configuration:${NC}"
+    echo -e "${BOLD}1. Production API${NC} (Read-Only - for market data)"
+    echo "   Get from: https://www.bybit.com/app/user/api-management"
+    echo "   Permissions needed: Read-Only (Position, Order, Wallet)"
     echo ""
-    echo "Timeframes: 5m (fast), 15m (balanced), 60m (slow), 240m (very slow)"
+    echo -e "${BOLD}2. Demo API${NC} (Trading - for actual trades)"
+    echo "   Get from: https://www.bybit.com/demo-trading"
+    echo "   Permissions needed: Orders, Positions, Wallet"
+    echo ""
+    print_warning "These keys are sensitive and will be stored in config/production.toml"
     echo ""
     
-    EMA_TIMEFRAME=$(select_option "Select EMA timeframe:" \
-        "5" \
-        "15 (recommended)" \
-        "60" \
-        "240")
+    # Production API
+    echo -e "${BLUE}Production API (Read-Only):${NC}"
+    PROD_KEY=$(input_with_default "Enter Production API Key" "${PROD_KEY:-}")
+    echo -ne "Enter Production API Secret: "
+    read -s PROD_SECRET
+    echo ""
     
-    # Extract just the number
-    EMA_TIMEFRAME=$(echo "$EMA_TIMEFRAME" | cut -d' ' -f1)
+    # Demo API
+    echo ""
+    echo -e "${BLUE}Demo API (Trading):${NC}"
+    DEMO_KEY=$(input_with_default "Enter Demo API Key" "${DEMO_KEY:-}")
+    echo -ne "Enter Demo API Secret: "
+    read -s DEMO_SECRET
+    echo ""
+    
+    if [[ -z "$PROD_KEY" || -z "$PROD_SECRET" || -z "$DEMO_KEY" || -z "$DEMO_SECRET" ]]; then
+        print_error "All API keys are required!"
+        press_any_key
+        return 1
+    fi
+    
+    print_success "API keys configured"
+    press_any_key
+    return 0
+}
+
+# Section 2: Trading Pair
+configure_symbol() {
+    print_header
+    print_section "Trading Pair Selection"
+    
+    print_info "Select the cryptocurrency pair you want to trade:"
+    echo ""
+    
+    local options=(
+        "ETHUSDT - Ethereum (Recommended for beginners, stable)"
+        "BTCUSDT - Bitcoin (Higher volatility, larger moves)"
+        "SOLUSDT - Solana (Mid volatility, faster price action)"
+        "XRPUSDT - Ripple (Lower price, good for testing)"
+        "Custom - Enter your own pair"
+    )
+    
+    local choice=$(select_option "Available Trading Pairs" "${options[@]}")
+    
+    case "$choice" in
+        1) SYMBOL="ETHUSDT" ;;
+        2) SYMBOL="BTCUSDT" ;;
+        3) SYMBOL="SOLUSDT" ;;
+        4) SYMBOL="XRPUSDT" ;;
+        5) 
+            echo ""
+            SYMBOL=$(input_with_default "Enter trading pair (e.g., ADAUSDT)" "ETHUSDT")
+            ;;
+    esac
+    
+    print_success "Selected trading pair: $SYMBOL"
+    press_any_key
+}
+
+# Section 3: Risk Settings
+configure_risk() {
+    print_header
+    print_section "Risk Management Settings"
+    
+    echo -e "${BOLD}Position Risk Percentage${NC}"
+    echo "This determines how much of your free USDT to use per initial trade."
+    echo ""
+    echo -e "  ${CYAN}0.01${NC} (1%)  - Conservative, smaller positions"
+    echo -e "  ${CYAN}0.02${NC} (2%)  - Recommended, balanced approach"
+    echo -e "  ${CYAN}0.05${NC} (5%)  - Aggressive, larger positions"
+    echo ""
+    
+    RISK_PCT=$(input_with_default "Position risk percentage (as decimal)" "${RISK_PCT:-${DEFAULTS[risk_pct]}}")
     
     echo ""
-    EMA_CANDLES=$(prompt "Number of candles for EMA (5-100)" "$DEFAULT_EMA_CANDLES")
+    echo -e "${BOLD}Leverage${NC}"
+    echo "Higher leverage = larger positions but higher liquidation risk"
+    echo ""
+    LEVERAGE=$(input_with_default "Leverage (1-100)" "${LEVERAGE:-${DEFAULTS[leverage]}}")
     
     echo ""
-    EMA_FALLBACK=$(prompt_yes_no "Wait for zone if no clear trend?" "Y")
-fi
+    echo -e "${BOLD}Daily Loss Limit${NC}"
+    echo "Bot will stop trading if daily loss exceeds this percentage"
+    MAX_DAILY_LOSS=$(input_with_default "Max daily loss %" "2.0")
+    
+    print_success "Risk settings configured"
+    press_any_key
+}
 
-echo ""
-echo -e "${BLUE}Grid Configuration:${NC}"
-echo ""
-echo "Grid range defines the distance between buy/sell zones."
-echo "Example: 2% range = zones at ±1% from entry price"
-echo ""
-echo "  1.0% = Tight grid, more trades, lower profit per trade"
-echo "  2.0% = Balanced grid (recommended)"
-echo "  3.0% = Wide grid, fewer trades, higher profit per trade"
-echo ""
-
-GRID_RANGE=$(prompt "Grid range percentage" "$DEFAULT_GRID_RANGE")
-
-echo ""
-MAX_GRID_LEVELS=$(prompt "Maximum grid levels (2-8)" "$DEFAULT_MAX_GRID_LEVELS")
-
-clear
-
-# ============================================
-# ADVANCED OPTIONS
-# ============================================
-echo -e "${GREEN}=== Step 5: Advanced Options (Optional) ===${NC}"
-echo ""
-
-CONFIGURE_ADVANCED=$(prompt_yes_no "Configure advanced options?" "N")
-
-if [ "$CONFIGURE_ADVANCED" = "true" ]; then
+# Section 4: Strategy Settings
+configure_strategy() {
+    print_header
+    print_section "Strategy Configuration"
+    
+    # Grid Range
+    echo -e "${BOLD}Grid Range${NC}"
+    echo "The distance between upper and lower trading zones."
+    echo "Example: 2% range = zones at ±1% from entry price"
     echo ""
-    echo -e "${BLUE}Partial Exit Configuration:${NC}"
+    echo -e "  ${CYAN}1.0%${NC} - Tight grid, more frequent trades, lower profit per trade"
+    echo -e "  ${CYAN}2.0%${NC} - Balanced grid (recommended)"
+    echo -e "  ${CYAN}3.0%${NC} - Wide grid, fewer trades, higher profit per trade"
     echo ""
-    echo "The bot can close positions in parts (laddered exits)."
+    GRID_RANGE=$(input_with_default "Grid range percentage" "${GRID_RANGE:-${DEFAULTS[grid_range]}}")
+    
+    # Max Grid Levels
+    echo ""
+    echo -e "${BOLD}Maximum Grid Levels${NC}"
+    echo "Maximum number of oscillations before forced exit"
+    echo "Higher = more capital required but more chances to profit"
+    MAX_GRID_LEVELS=$(input_with_default "Max grid levels (2-8)" "${MAX_GRID_LEVELS:-${DEFAULTS[max_grid]}}")
+    
+    # Position Sizing Factor
+    echo ""
+    echo -e "${BOLD}Position Sizing Factor${NC}"
+    echo "How much larger the winning-side position should be"
+    echo "1.5x = winning position is 50% larger than losing position"
+    POSITION_FACTOR=$(input_with_default "Sizing factor (1.1-2.0)" "1.5")
+    
+    print_success "Strategy settings configured"
+    press_any_key
+}
+
+# Section 5: Entry Mode
+configure_entry() {
+    print_header
+    print_section "Entry Configuration"
+    
+    echo -e "${BOLD}Entry Mode${NC}"
+    echo "How the bot decides when and in which direction to enter:"
+    echo ""
+    
+    local options=(
+        "EMA Trend - Uses EMA slope to determine LONG/SHORT (Recommended)"
+        "Immediate - Always enters LONG immediately (Simple)"
+        "Wait for Zone - Waits for price to hit a zone (Conservative)"
+    )
+    
+    local choice=$(select_option "Select Entry Mode" "${options[@]}")
+    
+    case "$choice" in
+        1) ENTRY_MODE="ema_trend" ;;
+        2) ENTRY_MODE="immediate" ;;
+        3) ENTRY_MODE="wait_for_zone" ;;
+    esac
+    
+    # EMA-specific settings
+    if [[ "$ENTRY_MODE" == "ema_trend" ]]; then
+        echo ""
+        echo -e "${BOLD}EMA Timeframe${NC}"
+        echo "Candle timeframe for EMA calculation:"
+        echo ""
+        echo -e "  ${CYAN}5m${NC}  - Fast signals, more entries (scalping)"
+        echo -e "  ${CYAN}15m${NC} - Balanced (recommended)"
+        echo -e "  ${CYAN}60m${NC} - Slower signals, fewer false entries"
+        echo -e "  ${CYAN}240m${NC}- Very slow, trend following"
+        echo ""
+        
+        local tf_options=("5" "15 (recommended)" "60" "240")
+        local tf_choice=$(select_option "Select EMA Timeframe" "${tf_options[@]}")
+        EMA_TIMEFRAME=$(echo "${tf_options[$tf_choice-1]}" | cut -d' ' -f1)
+        
+        echo ""
+        EMA_CANDLES=$(input_with_default "Number of EMA candles (5-100)" "${EMA_CANDLES:-${DEFAULTS[ema_candles]}}")
+        
+        echo ""
+        EMA_FALLBACK=$(confirm "Wait for zone touch if no clear trend?" "Y")
+    fi
+    
+    print_success "Entry mode configured: $ENTRY_MODE"
+    press_any_key
+}
+
+# Section 6: Advanced Settings
+configure_advanced() {
+    print_header
+    print_section "Advanced Configuration"
+    
+    # Partial Exits
+    echo -e "${BOLD}Partial Exits${NC}"
+    echo "Close positions gradually at different profit levels"
     echo "Example: Close 30% at +1%, 30% at +2%, 40% at +3.5%"
     echo ""
+    PARTIAL_EXITS=$(confirm "Enable partial exits?" "Y")
     
-    PARTIAL_EXITS=$(prompt_yes_no "Enable partial exits?" "Y")
+    if [[ "$PARTIAL_EXITS" == "true" ]]; then
+        echo ""
+        PARTIAL_LEVELS=$(input_with_default "Number of partial exit levels (2-5)" "3")
+        
+        echo ""
+        echo -e "${BOLD}Exit Distances${NC}"
+        echo "Multiplier of grid_range for each exit level"
+        echo "Example: 1.0 = 1x grid_range, 2.0 = 2x grid_range"
+        
+        EXIT_MULTIPLIERS=""
+        for ((i=1; i<=PARTIAL_LEVELS; i++)); do
+            local default_mult="1.0"
+            [[ $i == 2 ]] && default_mult="2.0"
+            [[ $i == 3 ]] && default_mult="3.5"
+            local mult=$(input_with_default "Exit $i distance multiplier" "$default_mult")
+            EXIT_MULTIPLIERS="$EXIT_MULTIPLIERS, $mult"
+        done
+        EXIT_MULTIPLIERS="[${EXIT_MULTIPLIERS#, }]"
+    fi
     
+    # Hold Time
     echo ""
-    echo -e "${BLUE}Risk Limits:${NC}"
-    echo ""
-    MAX_HOLD_HOURS=$(prompt "Maximum hold time in hours" "$DEFAULT_MAX_HOLD_HOURS")
-else
-    PARTIAL_EXITS="true"
-    MAX_HOLD_HOURS="$DEFAULT_MAX_HOLD_HOURS"
-fi
-
-clear
+    echo -e "${BOLD}Maximum Hold Time${NC}"
+    echo "Force exit after this many hours to avoid excessive funding fees"
+    MAX_HOLD_HOURS=$(input_with_default "Max hold time (hours)" "${MAX_HOLD_HOURS:-${DEFAULTS[max_hold_hours]}}")
+    
+    print_success "Advanced settings configured"
+    press_any_key
+}
 
 # ============================================
-# CONFIGURATION SUMMARY
+# SAVE & BUILD
 # ============================================
-echo -e "${GREEN}=== Configuration Summary ===${NC}"
-echo ""
-echo -e "${BLUE}API Configuration:${NC}"
-echo "  Production Key: ${PROD_KEY:0:8}..."
-echo "  Demo Key: ${DEMO_KEY:0:8}..."
-echo ""
-echo -e "${BLUE}Trading Settings:${NC}"
-echo "  Symbol: $SYMBOL"
-echo "  Risk %: $RISK_PCT"
-echo "  Leverage: ${LEVERAGE}x"
-echo ""
-echo -e "${BLUE}Strategy Settings:${NC}"
-echo "  Entry Mode: $ENTRY_MODE"
-if [ "$ENTRY_MODE" = "ema_trend" ]; then
-    echo "  EMA Timeframe: ${EMA_TIMEFRAME}m"
-    echo "  EMA Candles: $EMA_CANDLES"
-    echo "  EMA Fallback: $EMA_FALLBACK"
-fi
-echo "  Grid Range: ${GRID_RANGE}%"
-echo "  Max Grid Levels: $MAX_GRID_LEVELS"
-echo "  Partial Exits: $PARTIAL_EXITS"
-echo "  Max Hold Time: ${MAX_HOLD_HOURS}h"
-echo ""
 
-CONFIRM=$(prompt_yes_no "Save this configuration?" "Y")
-
-if [ "$CONFIRM" != "true" ]; then
-    echo -e "${RED}Configuration cancelled.${NC}"
-    exit 1
-fi
-
-# ============================================
-# CREATE CONFIGURATION FILE
-# ============================================
-mkdir -p config
-
-CONFIG_FILE="config/production.toml"
-
-# Handle fallback boolean
-if [ "$EMA_FALLBACK" = "true" ]; then
-    FALLBACK_STR="true"
-else
-    FALLBACK_STR="false"
-fi
-
-cat > "$CONFIG_FILE" << EOF
+save_config() {
+    print_header
+    print_section "Saving Configuration"
+    
+    # Create directories
+    mkdir -p config data
+    
+    # Determine exit config
+    if [[ "$PARTIAL_EXITS" == "true" ]]; then
+        # Generate percentages based on levels
+        local percentages=""
+        if [[ "$PARTIAL_LEVELS" == "3" ]]; then
+            percentages="[30, 30, 40]"
+        elif [[ "$PARTIAL_LEVELS" == "2" ]]; then
+            percentages="[50, 50]"
+        elif [[ "$PARTIAL_LEVELS" == "4" ]]; then
+            percentages="[25, 25, 25, 25]"
+        else
+            percentages="[20, 20, 20, 20, 20]"
+        fi
+        
+        EXIT_CONFIG="partial_exit_enabled = true
+partial_exit_levels = $PARTIAL_LEVELS
+partial_exit_percentages = $percentages
+partial_exit_multipliers = ${EXIT_MULTIPLIERS:-[1.0, 2.0, 3.5]}"
+    else
+        EXIT_CONFIG="partial_exit_enabled = false
+partial_exit_levels = 1
+partial_exit_percentages = [100]
+partial_exit_multipliers = [1.0]"
+    fi
+    
+    # Write config file
+    cat > "$CONFIG_FILE" << EOF
 # AlgoTrader Configuration
 # Generated on $(date)
+# Edit with ./setup.sh or manually
 
 [bot]
 name = "AlgoTrader-DynaGrid"
@@ -331,78 +439,175 @@ backup_interval_hours = 24
 backup_retention_days = 30
 
 [risk]
-max_daily_loss_pct = 2.0
+max_daily_loss_pct = ${MAX_DAILY_LOSS:-2.0}
 max_total_exposure_pct = 50.0
 emergency_stop_loss_pct = 5.0
 
 [strategy.dynagrid]
 enabled = true
-symbol = "${SYMBOL}"
-position_risk_percentage = ${RISK_PCT}
-grid_range_pct = ${GRID_RANGE}
-position_sizing_factor = 1.5
-max_grid_levels = ${MAX_GRID_LEVELS}
+symbol = "${SYMBOL:-ETHUSDT}"
+position_risk_percentage = ${RISK_PCT:-0.02}
+grid_range_pct = ${GRID_RANGE:-2.0}
+position_sizing_factor = ${POSITION_FACTOR:-1.5}
+max_grid_levels = ${MAX_GRID_LEVELS:-4}
 min_entry_interval_minutes = 60
-max_hold_time_hours = ${MAX_HOLD_HOURS}
-leverage = ${LEVERAGE}
+max_hold_time_hours = ${MAX_HOLD_HOURS:-168}
+leverage = ${LEVERAGE:-5}
 
 [strategy.dynagrid.entry]
-mode = "${ENTRY_MODE}"
+mode = "${ENTRY_MODE:-ema_trend}"
 ema_candles = ${EMA_CANDLES:-20}
 ema_timeframe = "${EMA_TIMEFRAME:-15}"
-ema_fallback = ${FALLBACK_STR}
+ema_fallback = ${EMA_FALLBACK:-true}
 
 [strategy.dynagrid.exit]
-partial_exit_enabled = ${PARTIAL_EXITS}
-partial_exit_levels = 3
-partial_exit_percentages = [30, 30, 40]
-partial_exit_multipliers = [1.0, 2.0, 3.5]
+${EXIT_CONFIG}
 EOF
-
-echo ""
-echo -e "${GREEN}✓ Configuration saved to: $CONFIG_FILE${NC}"
-echo ""
-
-# Create data directory
-mkdir -p data
-
-# ============================================
-# NEXT STEPS
-# ============================================
-echo -e "${GREEN}=== Next Steps ===${NC}"
-echo ""
-echo "1. Review your configuration:"
-echo "   cat $CONFIG_FILE"
-echo ""
-echo "2. Build the bot:"
-echo "   cargo build --release"
-echo ""
-echo "3. Run the bot:"
-echo "   ./target/release/algotrader"
-echo ""
-echo -e "${YELLOW}⚠️  IMPORTANT:${NC}"
-echo "   - Ensure your Demo account has USDT for trading"
-echo "   - Start with small position risk (0.01-0.02) for testing"
-echo "   - Monitor logs during first run"
-echo ""
-echo -e "${BLUE}Happy Trading! 🚀${NC}"
-echo ""
-
-# Ask if user wants to build now
-BUILD_NOW=$(prompt_yes_no "Build the bot now?" "Y")
-
-if [ "$BUILD_NOW" = "true" ]; then
+    
+    print_success "Configuration saved to: $CONFIG_FILE"
+    IS_CONFIGURED=true
+    
     echo ""
-    echo "Building..."
-    cargo build --release
-    echo ""
-    echo -e "${GREEN}✓ Build complete!${NC}"
+    print_info "Configuration Summary:"
+    echo "  Trading Pair: ${SYMBOL:-ETHUSDT}"
+    echo "  Risk: ${RISK_PCT:-0.02} (${RISK_PCT:-0.02}% of free USDT)"
+    echo "  Leverage: ${LEVERAGE:-5}x"
+    echo "  Grid Range: ${GRID_RANGE:-2.0}%"
+    echo "  Entry Mode: ${ENTRY_MODE:-ema_trend}"
+    echo "  Max Grid Levels: ${MAX_GRID_LEVELS:-4}"
+    
+    press_any_key
+}
+
+build_project() {
+    print_header
+    print_section "Building Project"
+    
+    if [[ "$IS_CONFIGURED" != "true" ]]; then
+        print_warning "No configuration found. Please configure first."
+        press_any_key
+        return 1
+    fi
+    
+    print_info "Building release binary..."
     echo ""
     
-    RUN_NOW=$(prompt_yes_no "Run the bot now?" "N")
-    if [ "$RUN_NOW" = "true" ]; then
-        echo ""
-        echo "Starting AlgoTrader..."
-        ./target/release/algotrader
+    if cargo build --release; then
+        print_success "Build successful!"
+        print_info "Binary location: ./target/release/algotrader"
+    else
+        print_error "Build failed!"
+        return 1
     fi
+    
+    press_any_key
+}
+
+run_bot() {
+    print_header
+    print_section "Running Bot"
+    
+    if [[ ! -f "target/release/algotrader" ]]; then
+        print_warning "Binary not found. Please build first."
+        press_any_key
+        return 1
+    fi
+    
+    echo -e "${GREEN}Starting AlgoTrader...${NC}"
+    echo ""
+    
+    ./target/release/algotrader
+}
+
+show_config() {
+    print_header
+    print_section "Current Configuration"
+    
+    if [[ -f "$CONFIG_FILE" ]]; then
+        cat "$CONFIG_FILE"
+    else
+        print_warning "No configuration file found at $CONFIG_FILE"
+    fi
+    
+    press_any_key
+}
+
+# ============================================
+# MAIN MENU
+# ============================================
+
+main_menu() {
+    while true; do
+        print_header
+        
+        echo -e "${BOLD}Main Menu${NC}\n"
+        
+        if [[ -f "$CONFIG_FILE" ]]; then
+            echo -e "  Status: ${GREEN}Configured${NC}"
+            echo ""
+        fi
+        
+        local options=(
+            "🚀 Quick Start - Configure everything with defaults"
+            "⚙️  Configure API Keys (Required)"
+            "💱 Configure Trading Pair"
+            "⚖️  Configure Risk Settings"
+            "📊 Configure Strategy"
+            "🚪 Configure Entry Mode"
+            "🔧 Advanced Settings"
+            "💾 Save Configuration"
+            "📄 View Current Config"
+            "🔨 Build Project"
+            "▶️  Run Bot"
+            "❌ Exit"
+        )
+        
+        local choice=$(select_option "Select an option" "${options[@]}")
+        
+        case "$choice" in
+            1)  # Quick Start
+                configure_api && \
+                configure_symbol && \
+                configure_risk && \
+                configure_strategy && \
+                configure_entry && \
+                save_config && \
+                build_project
+                ;;
+            2) configure_api ;;
+            3) configure_symbol ;;
+            4) configure_risk ;;
+            5) configure_strategy ;;
+            6) configure_entry ;;
+            7) configure_advanced ;;
+            8) save_config ;;
+            9) show_config ;;
+            10) build_project ;;
+            11) run_bot ;;
+            12) exit 0 ;;
+        esac
+    done
+}
+
+# ============================================
+# INITIALIZATION
+# ============================================
+
+# Check if already configured
+if [[ -f "$CONFIG_FILE" ]]; then
+    IS_CONFIGURED=true
 fi
+
+# Load existing config if present
+if [[ -f "$CONFIG_FILE" ]]; then
+    # Extract values from existing config
+    SYMBOL=$(grep "^symbol = " "$CONFIG_FILE" | cut -d'"' -f2)
+    RISK_PCT=$(grep "^position_risk_percentage = " "$CONFIG_FILE" | cut -d' ' -f3)
+    LEVERAGE=$(grep "^leverage = " "$CONFIG_FILE" | cut -d' ' -f3)
+    GRID_RANGE=$(grep "^grid_range_pct = " "$CONFIG_FILE" | cut -d' ' -f3)
+    MAX_GRID_LEVELS=$(grep "^max_grid_levels = " "$CONFIG_FILE" | cut -d' ' -f3)
+    ENTRY_MODE=$(grep "^mode = " "$CONFIG_FILE" | cut -d'"' -f2)
+fi
+
+# Start main menu
+main_menu
