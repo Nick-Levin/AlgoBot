@@ -332,15 +332,15 @@ pub enum WsMessage {
     Trade { data: Vec<WsTradeData> },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct WsTickerData {
     pub symbol: String,
-    #[serde(rename = "lastPrice")]
-    pub last_price: String,
-    #[serde(rename = "bid1Price")]
-    pub bid1_price: String,
-    #[serde(rename = "ask1Price")]
-    pub ask1_price: String,
+    #[serde(default, rename = "lastPrice")]
+    pub last_price: Option<String>,
+    #[serde(default, rename = "bid1Price")]
+    pub bid1_price: Option<String>,
+    #[serde(default, rename = "ask1Price")]
+    pub ask1_price: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -366,9 +366,9 @@ impl From<WsTickerData> for crate::db::Ticker {
     fn from(data: WsTickerData) -> Self {
         Self {
             symbol: data.symbol.clone(),
-            last_price: data.last_price.parse().unwrap_or(0.0),
-            bid_price: data.bid1_price.parse().unwrap_or(0.0),
-            ask_price: data.ask1_price.parse().unwrap_or(0.0),
+            last_price: data.last_price.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+            bid_price: data.bid1_price.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+            ask_price: data.ask1_price.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0),
             volume_24h: 0.0,
             funding_rate: None,
             next_funding_time: None,

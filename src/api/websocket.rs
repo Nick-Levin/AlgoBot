@@ -160,13 +160,58 @@ impl BybitWebSocketClient {
         // Check for ticker data
         if let Some(topic) = value.get("topic").and_then(|t| t.as_str()) {
             if topic.starts_with("tickers.") {
+                // Bybit v5 WebSocket sends ticker data directly in 'data' field
                 if let Some(data) = value.get("data") {
-                    let ticker_data: WsTickerData = serde_json::from_value(data.clone())?;
-                    let ticker: Ticker = ticker_data.into();
-
-                    // Update cache
-                    *cache.ticker.write().await = Some(ticker);
+                    // Parse the update (may be partial/delta)
+                    let update: WsTickerData = match serde_json::from_value(data.clone()) {
+                        Ok(u) => u,
+                        Err(e) => {
+                            warn!("Failed to parse ticker update: {}. Data: {}", e, data);
+                            return Ok(());
+                        }
+                    };
+                    
+                    // Merge with existing cache or create new ticker
+                    let mut ticker_guard = cache.ticker.write().await;
+                    let merged = if let Some(existing) = ticker_guard.as_ref() {
+                        // Merge delta update with existing ticker
+                        Ticker {
+                            symbol: update.symbol.clone(),
+                            last_price: update.last_price.as_ref()
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or(existing.last_price),
+                            bid_price: update.bid1_price.as_ref()
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or(existing.bid_price),
+                            ask_price: update.ask1_price.as_ref()
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or(existing.ask_price),
+                            volume_24h: existing.volume_24h,
+                            funding_rate: existing.funding_rate,
+                            next_funding_time: existing.next_funding_time,
+                        }
+                    } else {
+                        // No existing ticker - try to create from update
+                        // Skip if we don't have minimum required fields
+                        if update.last_price.is_none() {
+                            debug!("Skipping partial ticker update (no last_price yet)");
+                            return Ok(());
+                        }
+                        
+                        Ticker {
+                            symbol: update.symbol.clone(),
+                            last_price: update.last_price.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+                            bid_price: update.bid1_price.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+                            ask_price: update.ask1_price.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+                            volume_24h: 0.0,
+                            funding_rate: None,
+                            next_funding_time: None,
+                        }
+                    };
+                    
+                    *ticker_guard = Some(merged);
                     *cache.last_update.write().await = Instant::now();
+                    debug!("Updated ticker cache via WebSocket");
                 }
             }
         }
