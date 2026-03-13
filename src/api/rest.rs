@@ -22,8 +22,9 @@ pub struct BybitRestClient {
 impl BybitRestClient {
     pub fn new(credentials: ApiCredentials) -> BotResult<Self> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10))
+            .pool_idle_timeout(Duration::from_secs(300))
             .build()?;
 
         Ok(Self {

@@ -300,7 +300,24 @@ impl DynaGridEngine {
         // Determine initial entry based on configured mode
         let initial_side = match self.config.entry.mode {
             crate::config::EntryMode::EmaTrend => {
-                self.determine_entry_by_ema().await?
+                match self.determine_entry_by_ema().await {
+                    Ok(side) => side,
+                    Err(e) => {
+                        warn!("EMA analysis failed: {}. Falling back to zone-based entry.", e);
+                        // Wait for price to enter a zone
+                        if current_price >= grid.upper_price {
+                            info!("Price in upper zone, entering LONG");
+                            Side::Buy
+                        } else if current_price <= grid.lower_price {
+                            info!("Price in lower zone, entering SHORT");
+                            Side::Sell
+                        } else {
+                            info!("Price {:.2} in neutral zone, waiting for entry...", current_price);
+                            self.state.is_active = false;
+                            return Ok(());
+                        }
+                    }
+                }
             }
             crate::config::EntryMode::Immediate => {
                 info!("Immediate entry mode - entering LONG");
@@ -351,8 +368,18 @@ impl DynaGridEngine {
             candles, timeframe
         );
 
-        // Fetch klines - limit to exact number needed to avoid response truncation
-        let klines = self.api.get_klines(timeframe, candles as u32).await?;
+        // Fetch klines - use smaller limit to avoid API response truncation
+        let klines = match self.api.get_klines(timeframe, (candles / 2) as u32).await {
+            Ok(k) => k,
+            Err(e) => {
+                warn!("Failed to fetch klines for EMA: {}. Falling back to zone entry.", e);
+                // Return a special error that will trigger zone-based fallback
+                return Err(BotError::ApiError {
+                    message: "EMA analysis unavailable, use zone entry".to_string(),
+                    retryable: false,
+                });
+            }
+        };
         
         if klines.len() < candles {
             return Err(BotError::ApiError {
