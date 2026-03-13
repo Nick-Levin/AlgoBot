@@ -37,14 +37,25 @@ impl DynaGridEngine {
         })?;
 
         // Try to load existing state or create new
-        let state = match db.load_strategy_state().await? {
+        let (state, grid_config) = match db.load_strategy_state().await? {
             Some(state) if state.is_active => {
                 info!("Resuming active strategy for {}", state.symbol);
-                state
+                // Reconstruct grid config from saved state
+                let grid = if let (Some(upper), Some(lower)) = (state.grid_upper_price, state.grid_lower_price) {
+                    info!("Restoring grid: upper={:.2}, lower={:.2}", upper, lower);
+                    Some(GridConfig {
+                        upper_price: upper,
+                        lower_price: lower,
+                        range_pct: config.grid_range_pct,
+                    })
+                } else {
+                    None
+                };
+                (state, grid)
             }
             _ => {
                 // New strategy - will be initialized on first run
-                StrategyState::new(config.symbol())
+                (StrategyState::new(config.symbol()), None)
             }
         };
 
@@ -58,7 +69,7 @@ impl DynaGridEngine {
             config,
             state,
             initial_position_size: 0.0,
-            grid_config: None,
+            grid_config,
             partial_exit_config,
         })
     }
