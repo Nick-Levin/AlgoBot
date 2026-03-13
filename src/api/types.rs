@@ -175,17 +175,18 @@ pub struct PlaceOrderRequest {
     pub category: String,
     pub symbol: String,
     pub side: String,
+    #[serde(rename = "orderType")]
     pub order_type: String,
     pub qty: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "price")]
     pub price: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "timeInForce")]
     pub time_in_force: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "reduceOnly")]
     pub reduce_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "closeOnTrigger")]
     pub close_on_trigger: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "positionIdx")]
     pub position_idx: Option<i32>, // 0: one-way, 1: hedge buy, 2: hedge sell
 }
 
