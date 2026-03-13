@@ -1,0 +1,6 @@
+DEMO:
+    key: cViD388uJ0cCOfcOh3
+    sec: fEruiVZRPDAiBjXtvTDPjDm8EfbbZjWEvnq8
+PROD:
+    key: BY562L4jD129vgyvHc
+    sec: Rhxdr4iF5oonVb4wIegiqbAQayIWFofayYeX

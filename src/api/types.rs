@@ -29,11 +29,13 @@ impl<T> BybitResponse<T> {
 /// Wallet balance response
 #[derive(Debug, Clone, Deserialize)]
 pub struct WalletBalanceResponse {
+    #[serde(default)]
     pub list: Vec<WalletBalanceItem>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WalletBalanceItem {
+    #[serde(default)]
     pub coin: Vec<CoinBalance>,
 }
 

@@ -96,12 +96,26 @@ impl BybitRestClient {
         }
 
         let result: BybitResponse<WalletBalanceResponse> =
-            serde_json::from_str(&body).map_err(BotError::SerializationError)?;
+            serde_json::from_str(&body).map_err(|e| {
+                error!("Failed to parse wallet balance response: {}", e);
+                error!("Response body: {}", body);
+                BotError::SerializationError(e)
+            })?;
 
         if !result.is_success() {
             return Err(BotError::ApiError {
                 message: result.ret_msg,
                 retryable: result.ret_code == 10006, // Rate limit
+            });
+        }
+
+        // Check if list is empty
+        if result.result.list.is_empty() {
+            error!("Wallet balance response has empty list");
+            error!("Full response: {}", body);
+            return Err(BotError::ApiError {
+                message: "Empty wallet balance list".to_string(),
+                retryable: false,
             });
         }
 

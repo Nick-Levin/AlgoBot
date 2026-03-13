@@ -1,0 +1,50 @@
+# AlgoTrader Configuration
+# Generated: Sat Mar 14 12:11:21 AM IST 2026
+
+[bot]
+name = "AlgoTrader-DynaGrid"
+version = "0.1.0"
+log_level = "info"
+data_dir = "./data"
+
+[api.production]
+key = "BY562L4jD129vgyvHc"
+secret = "Rhxdr4iF5oonVb4wIegiqbAQayIWFofayYeX"
+base_url = "https://api.bybit.com"
+ws_url = "wss://stream.bybit.com/v5/public/linear"
+
+[api.demo]
+key = "cViD388uJ0cCOfcOh3"
+secret = "fEruiVZRPDAiBjXtvTDPjDm8EfbbZjWEvnq8"
+base_url = "https://api-demo.bybit.com"
+
+[database]
+path = "./data/algotrader.db"
+backup_enabled = true
+
+[risk]
+max_daily_loss_pct = 2.0
+max_total_exposure_pct = 50.0
+emergency_stop_loss_pct = 5.0
+
+[strategy.dynagrid]
+enabled = true
+symbol = "ETHUSDT"
+position_risk_percentage = 0.02
+grid_range_pct = 2.0
+position_sizing_factor = 1.5
+max_grid_levels = 4
+max_hold_time_hours = 168
+leverage = 5
+
+[strategy.dynagrid.entry]
+mode = "ema_trend"
+ema_candles = 20
+ema_timeframe = "15"
+ema_fallback = true
+
+[strategy.dynagrid.exit]
+partial_exit_enabled = false
+partial_exit_levels = 4
+partial_exit_percentages = [25, 25, 25, 25]
+partial_exit_multipliers = [1.0, 2.0, 3.5, 5.0]
