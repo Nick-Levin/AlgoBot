@@ -368,8 +368,8 @@ impl DynaGridEngine {
             candles, timeframe
         );
 
-        // Fetch klines - use smaller limit to avoid API response truncation
-        let klines = match self.api.get_klines(timeframe, (candles / 2) as u32).await {
+        // Fetch klines - use minimal limit to avoid API response truncation
+        let klines = match self.api.get_klines(timeframe, candles as u32).await {
             Ok(k) => k,
             Err(e) => {
                 warn!("Failed to fetch klines for EMA: {}. Falling back to zone entry.", e);

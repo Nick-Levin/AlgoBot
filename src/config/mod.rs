@@ -144,12 +144,12 @@ pub enum EntryMode {
 
 impl Default for EntryMode {
     fn default() -> Self {
-        EntryMode::EmaTrend
+        EntryMode::Immediate
     }
 }
 
 fn default_entry_mode() -> EntryMode {
-    EntryMode::EmaTrend
+    EntryMode::Immediate
 }
 
 fn default_ema_candles() -> usize {
