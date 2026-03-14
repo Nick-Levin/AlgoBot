@@ -188,6 +188,8 @@ pub struct PlaceOrderRequest {
     pub close_on_trigger: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "positionIdx")]
     pub position_idx: Option<i32>, // 0: one-way, 1: hedge buy, 2: hedge sell
+    #[serde(skip_serializing_if = "Option::is_none", rename = "marketUnit")]
+    pub market_unit: Option<String>, // "baseCoin" or "quoteCoin" for market orders
 }
 
 /// Order placement response

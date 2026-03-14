@@ -176,8 +176,8 @@ impl ApiManager {
         // Calculate position value in USDT
         let position_value_usdt = free_usdt * risk_percentage;
 
-        // Convert to coin amount and round to 3 decimal places (Bybit precision for ETH)
-        let position_size = ((position_value_usdt / current_price) * 1000.0).floor() / 1000.0;
+        // Convert to coin amount and round to 2 decimal places (Demo API seems to prefer this)
+        let position_size = ((position_value_usdt / current_price) * 100.0).floor() / 100.0;
 
         info!(
             "Position sizing: free_usdt={:.2}, risk_pct={:.4}, price={:.2}, size={:.6}",

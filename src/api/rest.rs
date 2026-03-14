@@ -441,11 +441,12 @@ impl BybitRestClient {
             time_in_force: order.time_in_force.clone(),
             reduce_only: if order.reduce_only { Some(true) } else { None },
             close_on_trigger: if order.close_on_trigger { Some(true) } else { None },
-            position_idx: Some(0), // One-way mode
+            position_idx: Some(if order.side == "Buy" { 1 } else { 2 }), // Hedge mode: 1=Buy, 2=Sell
+            market_unit: if order.order_type == "Market" { Some("baseCoin".to_string()) } else { None },
         };
 
         let body_json = serde_json::to_string(&request_body)?;
-        debug!("Placing order: {}", body_json);
+        info!("Order request: {}", body_json);
 
         let response = self
             .build_request(Method::POST, path, Some(&body_json))
