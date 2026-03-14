@@ -6,11 +6,14 @@ use crate::db::OrderRequest;
 use crate::error::{BotError, BotResult};
 use crate::risk::{RiskManager, RiskStatus};
 use crate::strategy::types::*;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+
+/// Interval between detailed position status logs (seconds)
+const STATUS_LOG_INTERVAL_SECS: i64 = 20;
 
 pub struct DynaGridEngine {
     api: Arc<ApiManager>,
@@ -21,6 +24,7 @@ pub struct DynaGridEngine {
     initial_position_size: f64,
     grid_config: Option<GridConfig>,
     partial_exit_config: PartialExitConfig,
+    last_status_log: Option<DateTime<Utc>>,
 }
 
 impl DynaGridEngine {
@@ -78,6 +82,7 @@ impl DynaGridEngine {
             initial_position_size,
             grid_config,
             partial_exit_config,
+            last_status_log: None,
         })
     }
 
@@ -159,11 +164,25 @@ impl DynaGridEngine {
         let ticker = self.api.get_ticker().await?;
         let current_price = ticker.last_price;
         
-        info!("");
-        info!("════════════════════════════════════════════════════════════");
-        info!("  NEW ITERATION - Price: {:.2} | Grid Level: {}/{}", 
-            current_price, self.state.grid_level, self.config.max_grid_levels);
-        info!("════════════════════════════════════════════════════════════");
+        // Log iteration header only when status is logged (every 20 seconds)
+        let should_log_header = match self.last_status_log {
+            None => true,
+            Some(last_log) => {
+                let elapsed = Utc::now().signed_duration_since(last_log).num_seconds();
+                elapsed >= STATUS_LOG_INTERVAL_SECS
+            }
+        };
+        
+        if should_log_header {
+            info!("");
+            info!("════════════════════════════════════════════════════════════");
+            info!("  NEW ITERATION - Price: {:.2} | Grid Level: {}/{}", 
+                current_price, self.state.grid_level, self.config.max_grid_levels);
+            info!("════════════════════════════════════════════════════════════");
+        } else {
+            debug!("Iteration: price={:.2}, level={}/{}", 
+                current_price, self.state.grid_level, self.config.max_grid_levels);
+        }
 
         // Check if we need to initialize
         if !self.state.is_active {
@@ -180,8 +199,18 @@ impl DynaGridEngine {
         let allocated_capital = self.state.initial_position_value_usdt;
         let current_exposure = self.state.total_exposure() * current_price;
         
-        // Log current position status periodically (every 5th iteration)
-        if self.state.grid_level % 5 == 0 || self.state.grid_level <= 2 {
+        // Log current position status every STATUS_LOG_INTERVAL_SECS seconds
+        let should_log_status = match self.last_status_log {
+            None => true,
+            Some(last_log) => {
+                let elapsed = Utc::now().signed_duration_since(last_log).num_seconds();
+                elapsed >= STATUS_LOG_INTERVAL_SECS
+            }
+        };
+        
+        if should_log_status {
+            self.last_status_log = Some(Utc::now());
+            
             let grid = self.grid_config.as_ref().unwrap();
             let (long_value, short_value) = (
                 self.state.long_size * current_price,
