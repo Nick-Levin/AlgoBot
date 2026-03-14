@@ -229,19 +229,21 @@ impl DynaGridEngine {
                 self.state.short_size, self.state.short_avg_price, short_value);
             info!("│ Total Exposure: {:>12.6} = {:.2} USDT            │", total_size, current_exposure);
             info!("├───────────────────────────────────────────────────────┤");
+            info!("│ ZONES: [LOWER={:.2}] ← neutral → [UPPER={:.2}]        │", 
+                grid.lower_price, grid.upper_price);
             
             // Show distances to zones
             let dist_to_upper = grid.upper_price - current_price;
             let dist_to_lower = current_price - grid.lower_price;
             if current_price >= grid.upper_price {
-                info!("│ Zone:           {:>12} (IN UPPER ZONE)          │", "UPPER");
+                info!("│ Zone:           {:>12} → ADD to LONG            │", "UPPER");
             } else if current_price <= grid.lower_price {
-                info!("│ Zone:           {:>12} (IN LOWER ZONE)          │", "LOWER");
+                info!("│ Zone:           {:>12} → ADD to SHORT           │", "LOWER");
             } else {
-                info!("│ Zone:           {:>12}                        │", "NEUTRAL");
+                info!("│ Zone:           {:>12} → Wait for entry         │", "NEUTRAL");
             }
-            info!("│ To Upper Zone:  {:>12.2}                        │", dist_to_upper.max(0.0));
-            info!("│ To Lower Zone:  {:>12.2}                        │", dist_to_lower.max(0.0));
+            info!("│ Distance: Up={:.2}, Down={:.2}                     │", 
+                dist_to_upper.max(0.0), dist_to_lower.max(0.0));
             
             // Show next exit levels
             if self.partial_exit_config.enabled && !self.partial_exit_config.levels.is_empty() {
@@ -299,7 +301,16 @@ impl DynaGridEngine {
         }
 
         // Check exit conditions first (highest priority)
-        info!("  Checking exit conditions at price {:.2}...", current_price);
+        info!("");
+        info!("  EXIT CHECK at price {:.2}:", current_price);
+        info!("    Current position: LONG {:.6} @ {:.2}", 
+            self.state.long_size, self.state.long_avg_price);
+        if let Some(ref grid) = self.grid_config {
+            info!("    Grid boundaries:  LOWER={:.2} ─── NEUTRAL ─── UPPER={:.2}",
+                grid.lower_price, grid.upper_price);
+            info!("    → Reaching UPPER zone ({:.2}) means: ADD to LONG position", grid.upper_price);
+        }
+        info!("    → Exits happen BEYOND grid at: entry + (multiplier × range)");
         if let Some(exit_action) = self.check_exit_conditions(current_price).await? {
             self.execute_exit(exit_action, current_price).await?;
             
@@ -635,7 +646,8 @@ impl DynaGridEngine {
         // Determine current zone
         let current_zone = match grid.get_zone(current_price) {
             Some(zone) => {
-                info!("Price {:.2} is in {:?} zone - evaluating entry", current_price, zone);
+                info!("");
+                info!("  ENTRY OPPORTUNITY: Price {:.2} is in {:?} zone", current_price, zone);
                 zone
             }
             None => {
@@ -816,7 +828,8 @@ impl DynaGridEngine {
         let grid_range = grid.upper_price - grid.lower_price;
 
         // Check each exit level
-        info!("  Checking exit levels for {:?} position (entry: {:.2})", winning_side, entry_price);
+        info!("  Exit targets for {:?} position (entry: {:.2}, range: {:.2}):", 
+            winning_side, entry_price, grid_range);
         
         for (idx, level) in self.partial_exit_config.levels.iter().enumerate() {
             let exit_price = self.partial_exit_config.get_exit_price(
@@ -839,11 +852,22 @@ impl DynaGridEngine {
             let status = if should_trigger { 
                 "<<< TRIGGERED! >>>" 
             } else { 
-                &format!("({:.2} away)", -distance) 
+                &format!("need {:.2} more", -distance) 
             };
             
-            info!("    Level {}: Exit at {:.2}, Close {:.0}% {}", 
-                idx + 1, exit_price, level.percentage, status);
+            let pnl_pct = match winning_side {
+                Zone::Upper => ((exit_price - entry_price) / entry_price) * 100.0,
+                Zone::Lower => ((entry_price - exit_price) / entry_price) * 100.0,
+            };
+            
+            let level_name = if idx == self.partial_exit_config.levels.len() - 1 {
+                "FINAL"
+            } else {
+                &format!("TP{}", idx + 1)
+            };
+            
+            info!("    {}: {:.2} ({}), Close {:.0}% → P&L: {:.2}% {}", 
+                level_name, exit_price, level.distance_multiplier, level.percentage, pnl_pct, status);
 
             if should_trigger {
                 let close_pct = level.percentage / 100.0;
@@ -857,12 +881,14 @@ impl DynaGridEngine {
                 };
                 
                 info!("");
-                info!("  EXIT EXECUTION PLAN:");
-                info!("    Reason:            {:?}", reason);
-                info!("    Close LONG:        {:.6} (if > 0)", 
-                    if winning_side == Zone::Upper { close_winning } else { close_losing });
-                info!("    Close SHORT:       {:.6} (if > 0)",
-                    if winning_side == Zone::Upper { close_losing } else { close_winning });
+                info!("  ✓ EXIT EXECUTING NOW:");
+                info!("    {:?}", reason);
+                info!("    Close LONG:   {:.6} {}", 
+                    if winning_side == Zone::Upper { close_winning } else { close_losing },
+                    self.config.symbol());
+                info!("    Close SHORT:  {:.6} {}",
+                    if winning_side == Zone::Upper { close_losing } else { close_winning },
+                    self.config.symbol());
 
                 return Ok(Some(ExitAction {
                     level: idx + 1,
@@ -881,8 +907,9 @@ impl DynaGridEngine {
             }
         }
         
-        info!("  No exit triggered. Price {:.2} hasn't reached any exit level.", current_price);
-        info!("  Hint: Exits happen at prices BEYOND the grid (entry + distance), not at zone boundaries.");
+        info!("");
+        info!("  No exit: Price {:.2} is below all exit targets.", current_price);
+        info!("  Keep waiting for price to reach TP1 or higher...");
 
         Ok(None)
     }
