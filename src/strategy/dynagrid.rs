@@ -299,6 +299,7 @@ impl DynaGridEngine {
         }
 
         // Check exit conditions first (highest priority)
+        info!("  Checking exit conditions at price {:.2}...", current_price);
         if let Some(exit_action) = self.check_exit_conditions(current_price).await? {
             self.execute_exit(exit_action, current_price).await?;
             
@@ -880,7 +881,8 @@ impl DynaGridEngine {
             }
         }
         
-        debug!("  No exit levels triggered at current price {:.2}", current_price);
+        info!("  No exit triggered. Price {:.2} hasn't reached any exit level.", current_price);
+        info!("  Hint: Exits happen at prices BEYOND the grid (entry + distance), not at zone boundaries.");
 
         Ok(None)
     }
