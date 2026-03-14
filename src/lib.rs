@@ -33,8 +33,20 @@ impl AlgoTrader {
     /// Run the trading bot
     pub async fn run(self) -> BotResult<()> {
         let symbol = self.config.strategy.dynagrid.symbol().to_string();
+        let grid_config = &self.config.strategy.dynagrid;
         
-        info!("Starting AlgoTrader for symbol: {}", symbol);
+        info!("");
+        info!("╔══════════════════════════════════════════════════════════════════╗");
+        info!("║                    AlgoTrader Starting                           ║");
+        info!("╠══════════════════════════════════════════════════════════════════╣");
+        info!("║  Symbol:          {:<45} ║", symbol);
+        info!("║  Grid Range:       {:.2}%{:>42}", grid_config.grid_range_pct, "║");
+        info!("║  Max Levels:       {:<45} ║", grid_config.max_grid_levels);
+        info!("║  Position Factor:   {:.2}x{:>41}", grid_config.position_sizing_factor, "║");
+        info!("║  Risk Per Trade:    {:.2}%{:>42}", grid_config.risk_percentage() * 100.0, "║");
+        info!("║  Entry Mode:        {:?}{:>36}", grid_config.entry.mode, "║");
+        info!("╚══════════════════════════════════════════════════════════════════╝");
+        info!("");
         
         // Create API manager
         let mut api = api::ApiManager::new(

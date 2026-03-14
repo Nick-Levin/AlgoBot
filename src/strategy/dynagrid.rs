@@ -159,10 +159,11 @@ impl DynaGridEngine {
         let ticker = self.api.get_ticker().await?;
         let current_price = ticker.last_price;
         
-        debug!(
-            "Strategy iteration: price={:.2}, is_active={}, has_positions={}, grid_level={}",
-            current_price, self.state.is_active, self.state.has_positions(), self.state.grid_level
-        );
+        info!("");
+        info!("════════════════════════════════════════════════════════════");
+        info!("  NEW ITERATION - Price: {:.2} | Grid Level: {}/{}", 
+            current_price, self.state.grid_level, self.config.max_grid_levels);
+        info!("════════════════════════════════════════════════════════════");
 
         // Check if we need to initialize
         if !self.state.is_active {
@@ -178,6 +179,71 @@ impl DynaGridEngine {
         let current_balance = self.api.get_wallet_balance("USDT").await?.wallet_balance;
         let allocated_capital = self.state.initial_position_value_usdt;
         let current_exposure = self.state.total_exposure() * current_price;
+        
+        // Log current position status periodically (every 5th iteration)
+        if self.state.grid_level % 5 == 0 || self.state.grid_level <= 2 {
+            let grid = self.grid_config.as_ref().unwrap();
+            let (long_value, short_value) = (
+                self.state.long_size * current_price,
+                self.state.short_size * current_price,
+            );
+            let total_size = self.state.long_size + self.state.short_size;
+            
+            info!("");
+            info!("┌─────────────────── POSITION STATUS ───────────────────┐");
+            info!("│ Current Price:  {:>12.2}                          │", current_price);
+            info!("│ Grid Level:     {:>12}/{}                           │", self.state.grid_level, self.config.max_grid_levels);
+            info!("├───────────────────────────────────────────────────────┤");
+            info!("│ LONG Position:  {:>12.6} @ {:.2} = {:.2} USDT    │", 
+                self.state.long_size, self.state.long_avg_price, long_value);
+            info!("│ SHORT Position: {:>12.6} @ {:.2} = {:.2} USDT    │",
+                self.state.short_size, self.state.short_avg_price, short_value);
+            info!("│ Total Exposure: {:>12.6} = {:.2} USDT            │", total_size, current_exposure);
+            info!("├───────────────────────────────────────────────────────┤");
+            
+            // Show distances to zones
+            let dist_to_upper = grid.upper_price - current_price;
+            let dist_to_lower = current_price - grid.lower_price;
+            if current_price >= grid.upper_price {
+                info!("│ Zone:           {:>12} (IN UPPER ZONE)          │", "UPPER");
+            } else if current_price <= grid.lower_price {
+                info!("│ Zone:           {:>12} (IN LOWER ZONE)          │", "LOWER");
+            } else {
+                info!("│ Zone:           {:>12}                        │", "NEUTRAL");
+            }
+            info!("│ To Upper Zone:  {:>12.2}                        │", dist_to_upper.max(0.0));
+            info!("│ To Lower Zone:  {:>12.2}                        │", dist_to_lower.max(0.0));
+            
+            // Show next exit levels
+            if self.partial_exit_config.enabled && !self.partial_exit_config.levels.is_empty() {
+                let grid_range = grid.upper_price - grid.lower_price;
+                let winning_side = if self.state.long_size > self.state.short_size {
+                    Zone::Upper
+                } else {
+                    Zone::Lower
+                };
+                let entry_price = if winning_side == Zone::Upper {
+                    self.state.long_avg_price
+                } else {
+                    self.state.short_avg_price
+                };
+                
+                for (idx, _level) in self.partial_exit_config.levels.iter().enumerate() {
+                    let exit_price = self.partial_exit_config.get_exit_price(
+                        idx, winning_side, grid_range, entry_price
+                    );
+                    let distance = if winning_side == Zone::Upper {
+                        exit_price - current_price
+                    } else {
+                        current_price - exit_price
+                    };
+                    let status = if distance <= 0.0 { "[REACHED]" } else { "" };
+                    info!("│ Exit {}:       {:>12.2} (dist: {:.2}) {}    │", 
+                        idx + 1, exit_price, distance, status);
+                }
+            }
+            info!("└───────────────────────────────────────────────────────┘");
+        }
 
         // Check risk conditions using RiskManager
         match self.risk_manager.check_strategy_risk(
@@ -277,9 +343,59 @@ impl DynaGridEngine {
 
         // Set up grid
         let grid = GridConfig::new(current_price, self.config.grid_range_pct);
+        let grid_range = grid.upper_price - grid.lower_price;
+        
         info!(
-            "Grid configured: upper={:.2}, lower={:.2}, range={:.2}%",
-            grid.upper_price, grid.lower_price, self.config.grid_range_pct
+            "╔════════════════════════════════════════════════════════════╗"
+        );
+        info!(
+            "║                   STRATEGY INITIALIZED                     ║"
+        );
+        info!(
+            "╚════════════════════════════════════════════════════════════╝"
+        );
+        info!("Grid Configuration:");
+        info!("  Center Price:     {:.2}", current_price);
+        info!("  Upper Zone:       >= {:.2} (LONG entries)", grid.upper_price);
+        info!("  Lower Zone:       <= {:.2} (SHORT entries)", grid.lower_price);
+        info!("  Grid Range:       {:.2} ({:.2}%)", grid_range, self.config.grid_range_pct);
+        info!("  Max Grid Levels:  {}", self.config.max_grid_levels);
+        info!("  Position Factor:  {:.2}x", self.config.position_sizing_factor);
+        info!("  Initial Size:     {:.6} {} (~{:.2} USDT)", 
+            self.initial_position_size, self.config.symbol(), 
+            self.initial_position_size * current_price);
+        info!("  Risk Per Trade:   {:.2}%", self.config.risk_percentage() * 100.0);
+        
+        if self.partial_exit_config.enabled {
+            info!("");
+            info!("Partial Exit Plan ({} levels):", self.partial_exit_config.levels.len());
+            for (idx, level) in self.partial_exit_config.levels.iter().enumerate() {
+                let exit_price_upper = self.partial_exit_config.get_exit_price(
+                    idx, Zone::Upper, grid_range, grid.upper_price
+                );
+                let exit_price_lower = self.partial_exit_config.get_exit_price(
+                    idx, Zone::Lower, grid_range, grid.lower_price
+                );
+                let level_name = if idx == self.partial_exit_config.levels.len() - 1 {
+                    "FINAL"
+                } else {
+                    &format!("Level {}", idx + 1)
+                };
+                info!(
+                    "  {}: Close {:.0}% at distance {:.2}x grid range",
+                    level_name, level.percentage, level.distance_multiplier
+                );
+                info!(
+                    "      LONG exit:  >= {:.2}", exit_price_upper
+                );
+                info!(
+                    "      SHORT exit: <= {:.2}", exit_price_lower
+                );
+            }
+        }
+        
+        info!(
+            "════════════════════════════════════════════════════════════"
         );
 
         // Initialize state
@@ -489,7 +605,7 @@ impl DynaGridEngine {
         // Determine current zone
         let current_zone = match grid.get_zone(current_price) {
             Some(zone) => {
-                debug!("Price {:.2} is in {:?} zone", current_price, zone);
+                info!("Price {:.2} is in {:?} zone - evaluating entry", current_price, zone);
                 zone
             }
             None => {
@@ -543,12 +659,25 @@ impl DynaGridEngine {
             target_zone,
             current_price,
         );
+        
+        let order_value = qty * current_price;
+        
+        info!("  Entry Calculation:");
+        info!("    Target Zone:       {:?}", target_zone);
+        info!("    Current Long:      {:.6} ({:.2} USDT)", self.state.long_size, self.state.long_size * current_price);
+        info!("    Current Short:     {:.6} ({:.2} USDT)", self.state.short_size, self.state.short_size * current_price);
+        info!("    Target Ratio:      {:.2}x", self.config.position_sizing_factor);
+        info!("    Calculated Qty:    {:.6}", qty);
+        info!("    Order Value:       {:.2} USDT", order_value);
 
         // Validate minimum size
-        if qty * current_price < 10.0 {
-            // Below minimum order value
+        if order_value < 10.0 {
+            warn!("    Entry skipped: Order value {:.2} below minimum 10 USDT", order_value);
             return Ok(None);
         }
+
+        info!("  → ENTRY DECISION: Will enter {:?} with {:.6} {}", 
+            target_zone.to_side(), qty, self.config.symbol());
 
         Ok(Some(EnterAction {
             side: target_zone.to_side(),
@@ -604,14 +733,18 @@ impl DynaGridEngine {
         self.state.grid_level += 1;
         self.state.last_action_time = Some(Utc::now());
 
-        info!(
-            "Entry executed. Grid level: {}, Long: {:.6} @ {:.2}, Short: {:.6} @ {:.2}",
-            self.state.grid_level,
-            self.state.long_size,
-            self.state.long_avg_price,
-            self.state.short_size,
-            self.state.short_avg_price
-        );
+        info!("");
+        info!("✓ ENTRY EXECUTED SUCCESSFULLY");
+        info!("  Order:     {} {:.6} {} @ ~{:.2}", 
+            action.side, action.qty, self.config.symbol(), current_price);
+        info!("  Updated Positions:");
+        info!("    LONG:    {:.6} @ {:.2} (value: {:.2} USDT)", 
+            self.state.long_size, self.state.long_avg_price, self.state.long_size * current_price);
+        info!("    SHORT:   {:.6} @ {:.2} (value: {:.2} USDT)", 
+            self.state.short_size, self.state.short_avg_price, self.state.short_size * current_price);
+        info!("    NET:     {:.6} {}", 
+            self.state.long_size - self.state.short_size, self.config.symbol());
+        info!("  Grid Level: {}/{}", self.state.grid_level, self.config.max_grid_levels);
 
         Ok(())
     }
@@ -653,6 +786,8 @@ impl DynaGridEngine {
         let grid_range = grid.upper_price - grid.lower_price;
 
         // Check each exit level
+        info!("  Checking exit levels for {:?} position (entry: {:.2})", winning_side, entry_price);
+        
         for (idx, level) in self.partial_exit_config.levels.iter().enumerate() {
             let exit_price = self.partial_exit_config.get_exit_price(
                 idx,
@@ -665,6 +800,20 @@ impl DynaGridEngine {
                 Zone::Upper => current_price >= exit_price,
                 Zone::Lower => current_price <= exit_price,
             };
+            
+            let distance = match winning_side {
+                Zone::Upper => current_price - exit_price,
+                Zone::Lower => exit_price - current_price,
+            };
+            
+            let status = if should_trigger { 
+                "<<< TRIGGERED! >>>" 
+            } else { 
+                &format!("({:.2} away)", -distance) 
+            };
+            
+            info!("    Level {}: Exit at {:.2}, Close {:.0}% {}", 
+                idx + 1, exit_price, level.percentage, status);
 
             if should_trigger {
                 let close_pct = level.percentage / 100.0;
@@ -676,6 +825,14 @@ impl DynaGridEngine {
                 } else {
                     ExitReason::PartialTakeProfit { level: idx + 1 }
                 };
+                
+                info!("");
+                info!("  EXIT EXECUTION PLAN:");
+                info!("    Reason:            {:?}", reason);
+                info!("    Close LONG:        {:.6} (if > 0)", 
+                    if winning_side == Zone::Upper { close_winning } else { close_losing });
+                info!("    Close SHORT:       {:.6} (if > 0)",
+                    if winning_side == Zone::Upper { close_losing } else { close_winning });
 
                 return Ok(Some(ExitAction {
                     level: idx + 1,
@@ -693,6 +850,8 @@ impl DynaGridEngine {
                 }));
             }
         }
+        
+        debug!("  No exit levels triggered at current price {:.2}", current_price);
 
         Ok(None)
     }
@@ -797,10 +956,25 @@ impl DynaGridEngine {
         };
         self.db.record_partial_exit(&exit_record).await?;
 
-        info!(
-            "Exit executed. Realized P&L: {:.2}, Total Realized: {:.2}",
-            realized_pnl, self.state.realized_pnl
-        );
+        info!("");
+        info!("✓ EXIT EXECUTED SUCCESSFULLY");
+        info!("  Exit Type: {:?}", action.reason);
+        info!("  Closed:");
+        if action.close_long_qty > 0.0 {
+            info!("    LONG:    {:.6} @ {:.2} (P&L: {:.2} USDT)", 
+                action.close_long_qty, current_price, 
+                action.close_long_qty * (current_price - self.state.long_avg_price));
+        }
+        if action.close_short_qty > 0.0 {
+            info!("    SHORT:   {:.6} @ {:.2} (P&L: {:.2} USDT)", 
+                action.close_short_qty, current_price,
+                action.close_short_qty * (self.state.short_avg_price - current_price));
+        }
+        info!("  This Trade P&L:   {:.2} USDT", realized_pnl);
+        info!("  Total Realized:   {:.2} USDT", self.state.realized_pnl);
+        info!("  Remaining:");
+        info!("    LONG:    {:.6} @ {:.2}", self.state.long_size, self.state.long_avg_price);
+        info!("    SHORT:   {:.6} @ {:.2}", self.state.short_size, self.state.short_avg_price);
 
         Ok(())
     }
